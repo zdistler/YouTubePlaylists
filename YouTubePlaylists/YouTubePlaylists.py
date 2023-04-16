@@ -279,7 +279,7 @@ def run():
                 videosToAdd.append(video)
                 continue
             
-            if len(subscription.restrictions["include"]) > 0:
+            if (len(subscription.restrictions["include"]) > 0) or (len(subscription.restrictions["date"]) > 0):
                 for restriction in subscription.restrictions["include"]:
                     if restriction.lower() in video.title.lower():
                         include = True
