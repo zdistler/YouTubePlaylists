@@ -1,3 +1,4 @@
+from asyncio.windows_events import NULL
 import os
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
@@ -6,6 +7,7 @@ from datetime import timedelta
 import datetime
 import pickle
 from prettytable import PrettyTable
+import requests
 from Video import Video
 from Playlist import Playlist
 from Subscription import Subscription
@@ -14,6 +16,7 @@ from Subscription import Subscription
 clientSecretsFile = "ClientSecret.json"
 subscriptionsFile = "Subscriptions.txt"
 lastUsedFile = "LastUsed.txt"
+credentialsFile = "Credentials.txt"
 
 # Scopes used by app
 scopes = ["https://www.googleapis.com/auth/youtube.readonly", "https://www.googleapis.com/auth/youtube.force-ssl"]
@@ -29,13 +32,30 @@ subscriptions = []
 
 # Authenticate Google account
 def getAuthenticatedService():
-    flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
-        clientSecretsFile, scopes)
-    flow.run_local_server(port = 8080,prompt = "consent")
+    credentials = None
+
+    try:
+        with open(credentialsFile, "rb") as file:
+            credentials = pickle.load(file)
+    except:
+        flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
+            clientSecretsFile, scopes)
+        flow.run_local_server(port = 8080)
+
+        with open(credentialsFile, "wb") as write:
+            pickle.dump(flow.credentials, write)
+
+        credentials = flow.credentials
     
     global youtube
-    youtube = googleapiclient.discovery.build(
-        apiServiceName, apiVersion, credentials = flow.credentials)
+
+    try:
+        youtube = googleapiclient.discovery.build(
+            apiServiceName, apiVersion, credentials = credentials)
+    except:
+        with open(credentialsFile, "wb") as file:
+            pickle.dump("", write)
+        getAuthenticatedService()
 
 # Get all user created playlists
 def findPlaylists():
@@ -124,13 +144,43 @@ def addNewSubscription(username, channelID):
     playlist = choosePlaylist()
     if not playlist:
         return False
-    subscription = Subscription(username, channelID, playlist)
+    live = allowLive()
+    if live == "cancel":
+        return False
+    shorts = allowShorts()
+    if shorts == "cancel":
+        return False
+    subscription = Subscription(username, channelID, playlist, live, shorts)
     restrictions = subscription.addRestrictions()
     if not restrictions:
         return False
     subscriptions.append(subscription)
     return True
 
+# Choose whether to allow for shorts to be included
+def allowShorts():
+    allowShorts = input("Include Shorts(Y/N): ")
+    if allowShorts.lower() == "y":
+        return True
+    if allowShorts.lower() == "n":
+        return False
+    if allowShorts.lower() == "cancel":
+        return allowShorts.lower()
+    else:
+        return allowShorts()
+    
+# Choose whether to allow for live stream videos to be included
+def allowLive():
+    allowLive = input("Include Live Streams(Y/N): ")
+    if allowLive.lower() == "y":
+        return True
+    if allowLive.lower() == "n":
+        return False
+    if allowLive.lower() == "cancel":
+        return allowLive.lower()
+    else:
+        return allowLive()
+        
 # Specify a playlist to associate with a subscription
 def choosePlaylist():
     chosenPlaylist = input("Playlist (Enter cancel to leave): ")
@@ -164,12 +214,18 @@ def stop():
 
 # Display all subscriptions with their associated playlist and restrictions in a table
 def display():
-    myTable = PrettyTable(["Channel", "Playlist", "Restrictions"])
+    myTable = PrettyTable(["Channel", "Playlist", "Restrictions", "Live Streams ", "Shorts "])
 
     for subscription in subscriptions:
         restrictions = subscription.listRestrictions()
+        liveStream = ""
+        shorts = ""
+        if subscription.allowLive:
+            liveStream = "      X      "
+        if subscription.allowShorts:
+            shorts = "   X   "
 
-        myTable.add_row([subscription.username, subscription.playlist.title, restrictions[0]])
+        myTable.add_row([subscription.username, subscription.playlist.title, restrictions[0], liveStream, shorts])
         if len(subscription.restrictions) > 1:
             for i in range(1, len(restrictions)):
                 myTable.add_row(["", "", restrictions[i]])
@@ -230,8 +286,10 @@ def run():
         else:
             til = None
 
-    backTime = (datetime.datetime.now() - timedelta(days = back)).astimezone().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    tilTime = (datetime.datetime.now() - timedelta(days = til)).astimezone().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    backDate = (datetime.datetime.now() - timedelta(days = back)).astimezone()
+    backTime = backDate.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    tilDate = (datetime.datetime.now() - timedelta(days = til)).astimezone()
+    tilTime = tilDate.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
     for subscription in subscriptions:
         videos = []
@@ -291,8 +349,17 @@ def run():
                 videosToAdd.append(video)
 
         for video in videosToAdd:
+            if not subscription.allowLive:
+                videoResponse = videoRequest(video.id)
+                if "liveStreamingDetails" in videoResponse["items"][0]:
+                    continue
+            
+            if not subscription.allowShorts:
+                if shortCheck(video.id):
+                    continue
             print("    ", subscription.username, "|", video.title)
-            addToPlaylist(video.id, subscription.playlist.id)
+            
+            #addToPlaylist(video.id, subscription.playlist.id)
 
         total += len(videosToAdd)
             
@@ -302,6 +369,22 @@ def run():
     print(total)
 
     return True
+
+# Returns info about a specified video
+def shortCheck(videoID):
+    url = 'https://www.youtube.com/shorts/' + videoID
+    ret = requests.head(url)
+    
+    return ret.status_code == 200
+
+# Returns info about a specified video
+def videoRequest(videoID):
+    request = youtube.videos().list(
+        part="liveStreamingDetails",
+        id=videoID
+    )
+
+    return request.execute()
 
 # Adds a video to a playlist
 def addToPlaylist(videoId, playlistId):
@@ -354,6 +437,7 @@ def options():
         if result == "cancel":
             options()
         else:
+            input()
             stop()
     elif selection == "stop":
         stop()

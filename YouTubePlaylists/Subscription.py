@@ -11,7 +11,7 @@ class Subscription:
         "sunday" : 6
     }   
 
-    def __init__(self, username, channelID, playlist):
+    def __init__(self, username, channelID, playlist, allowLive, allowShorts):
         self.username = username
         self.channelID = channelID
         self.playlist = playlist
@@ -20,6 +20,8 @@ class Subscription:
             "exclude" : [],
             "date" : []
         }
+        self.allowLive = allowLive
+        self.allowShorts = allowShorts
 
     # Attach more restrictions to the Subscription 
     def addMoreRestrictions(self):
