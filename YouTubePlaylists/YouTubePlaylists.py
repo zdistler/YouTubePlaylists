@@ -1,4 +1,3 @@
-from asyncio.windows_events import NULL
 import os
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
@@ -357,9 +356,10 @@ def run():
             if not subscription.allowShorts:
                 if shortCheck(video.id):
                     continue
+                
             print("    ", subscription.username, "|", video.title)
             
-            #addToPlaylist(video.id, subscription.playlist.id)
+            addToPlaylist(video.id, subscription.playlist.id)
 
         total += len(videosToAdd)
             
@@ -370,7 +370,7 @@ def run():
 
     return True
 
-# Returns info about a specified video
+# Returns whether a video is a short
 def shortCheck(videoID):
     url = 'https://www.youtube.com/shorts/' + videoID
     ret = requests.head(url)
